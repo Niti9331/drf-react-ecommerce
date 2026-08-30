@@ -1,39 +1,83 @@
-# Ecommerce website
-Fully functional e-commerce website with back-end using Django and front-end using React. Integrated with Stripe for payments and used React-bootstrap components for styling. Project is live at: [https://proshop-web.vercel.app](https://proshop-web.vercel.app).
+# Proshop — Dockerized 3-Tier E-Commerce Deployment
 
-## Demo video
-https://user-images.githubusercontent.com/84830429/222736252-235eb893-a296-430f-9c7f-123fc31cedd6.mp4
+A public, non-Dockerized Django REST Framework + React + PostgreSQL e-commerce app, forked and containerized from scratch, then deployed to AWS EC2 with Docker Compose.
 
-## Instructions
-To run this project locally on your machine,
-1. Clone this repository.
-2. Make sure you have python and node installed.
-3. Open this project and run following cmd to install dependencies:
-```
-pip3 install requirements.txt
-```
-4. Create a .env file with contents as .env.example file.
-```
-SECRET_KEY=
-DEBUG=
-STRIPE_API_KEY=
-DATABASE_URL=
-```
-In case you do not want to provide a database url, uncomment line 87 to 92 in settings.py file.
-https://github.com/VaibhavArora314/drf-react-ecommerce/blob/d31c3537eeaf6fe894a4a3be0b6b3ac6f47dbe9b/backend/settings.py#L87-L92
-Also comment line 94 in same file.
-https://github.com/VaibhavArora314/drf-react-ecommerce/blob/d31c3537eeaf6fe894a4a3be0b6b3ac6f47dbe9b/backend/settings.py#L94
-5. Now run following cmds to create and run migrations.
-```
-python3 manage.py makemigrations
-python3 manage.py migrate
-```
-6. Now turn on the server using
-```
-python3 manage.py runserver
-```
-Now the application is running at port 8000 by default i.e. ```http://127.0.0.1:8000```.
+Forked from [`VaibhavArora314/drf-react-ecommerce`](https://github.com/VaibhavArora314/drf-react-ecommerce) → this repo.
 
+## Stack
 
-### Credits:
-[Django with React | An Ecommerce Website](https://www.udemy.com/course/django-with-react-an-ecommerce-website/).
+| Layer | Technology |
+|---|---|
+| Frontend | React.js, served via Nginx (multi-stage build) |
+| Backend | Django + Django REST Framework |
+| Database | PostgreSQL 15 |
+| Orchestration | Docker Compose |
+| Auth | JWT (`djangorestframework-simplejwt`) + Google OAuth (upstream) |
+| Cloud | AWS EC2 — Ubuntu 22.04, t3.small, 12 GB storage |
+
+## Architecture
+
+Three containers on one custom Docker bridge network (`ecommerce_network`):
+
+```
+                 ┌────────────────────── EC2 (t3.small) ──────────────────────┐
+                 │        ┌──────────── ecommerce_network ───────────┐        │
+   internet ──── │ :3000 →│  frontend (Nginx)  ──/api /auth /admin──▶│        │
+                 │        │        │                                 │        │
+   internet ──── │ :8000 →│        ▼                                 │        │
+                 │        │  backend (Django)  ──db:5432────────────▶│  db    │
+                 │        │                                          │ (PG15) │
+                 │        └──────────────────────────────────────────┴────────┘
+                 │                                          postgres_data (volume)
+                 └──────────────────────────────────────────────────────────────┘
+```
+
+- Frontend → Backend: Nginx reverse-proxies `/api/`, `/auth/`, `/admin/` to `http://backend:8080`
+- Backend → Database: Django connects via the Compose service name `db:5432` (never `localhost`)
+- PostgreSQL is **not** exposed on the EC2 public interface — reachable only from the backend, over the internal network, gated by a healthcheck
+
+## Ports
+
+| Service | Container port | EC2 port |
+|---|---|---|
+| Frontend / Nginx | 80 | 3000 (public) |
+| Backend / Django | 8080 | 8000 (public) |
+| PostgreSQL | 5432 | not exposed (internal only) |
+
+## Running locally
+
+```bash
+git clone https://github.com/Niti9331/drf-react-ecommerce.git
+cd drf-react-ecommerce
+
+# recreate .env (gitignored) — see .env.example
+docker compose up --build
+
+# first run only
+docker compose exec backend python manage.py migrate
+docker compose exec backend python manage.py createsuperuser
+```
+
+- Frontend: `http://localhost:3000`
+- Backend / Admin: `http://localhost:8000/admin`
+
+## Persistence
+
+PostgreSQL data lives in the named volume `postgres_data`, mounted at `/var/lib/postgresql/data`. Verified by seeding data through the admin panel, running `docker compose down` → `docker compose up --build`, and confirming the data survived — both locally and on EC2.
+
+## Security notes
+
+- Secrets (`SECRET_KEY`, `DATABASE_URL`) live only in `.env`, gitignored, injected via `env_file` — never baked into the image
+- `.env`, `venv/`, `__pycache__/`, `*.pyc`, `db.sqlite3` are all gitignored
+- Only SSH (22), frontend (3000), and backend (8000) are open on the EC2 security group — port 5432 stays closed by design
+
+## Notable fixes along the way
+
+- Reordered the backend Dockerfile (`COPY requirements.txt` → `RUN pip install` → `COPY . .`) for correct build context and better layer caching
+- Upgraded `psycopg2-binary` to resolve a SCRAM-SHA-256 auth mismatch with Postgres 15
+- Replaced `host.docker.internal` in `nginx.conf` with the Compose service name `backend`, which resolves via Docker's built-in DNS on any platform (Linux/EC2 included)
+- Standardized `docker-compose.yml` on long-form `depends_on` with `service_healthy` conditions
+
+## Full write-up
+
+See [`Proshop_Docker_Deployment_Report_Enhanced.html`](./Proshop_Docker_Deployment_Report_Enhanced.html) for the full architecture breakdown, troubleshooting log, and deployment screenshots.
