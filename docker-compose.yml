@@ -26,6 +26,15 @@ services:
         condition: service_healthy
     networks:
      - ecommerce_network
+    
+   frontend:
+     build: ./frontend
+     ports:
+       - "3000:80"
+     networks:
+       - ecommerce_network
+     depends_on:
+       - backend
 
 networks:
   ecommerce_network:
