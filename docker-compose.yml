@@ -17,6 +17,8 @@ services:
 
   backend:
     build: .
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/ecommerce
     ports: 
@@ -27,14 +29,14 @@ services:
     networks:
      - ecommerce_network
     
-   frontend:
-     build: ./frontend
-     ports:
-       - "3000:80"
-     networks:
-       - ecommerce_network
-     depends_on:
-       - backend
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    networks:
+      - ecommerce_network
+    depends_on:
+      - backend
 
 networks:
   ecommerce_network:
